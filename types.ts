@@ -1,7 +1,7 @@
 
 export interface Transaction {
   id: string;
-  type: 'send' | 'receive' | 'mine';
+  type: 'send' | 'receive' | 'mine' | 'admin_adjust';
   amount: number;
   timestamp: string;
   peerId?: string;
@@ -16,6 +16,13 @@ export interface User {
   nodeId: string;
   joinedAt: string;
   highestBalance: number;
+  role: 'user' | 'admin';
+  isBanned?: boolean;
+}
+
+export interface UserCredentials {
+  username: string;
+  password: string;
 }
 
 export interface ChatMessage {
@@ -28,5 +35,7 @@ export interface ChatMessage {
 export enum AppView {
   LANDING = 'LANDING',
   LOGIN = 'LOGIN',
-  DASHBOARD = 'DASHBOARD'
+  REGISTER = 'REGISTER',
+  DASHBOARD = 'DASHBOARD',
+  ADMIN = 'ADMIN'
 }

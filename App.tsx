@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AppView, User, Transaction } from './types';
 import { ChatBot } from './components/ChatBot';
+import { api } from './services/api';
 
 // --- Icons ---
 const IconRadio = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.2 19.1 19.1"/></svg>;
@@ -14,182 +15,99 @@ const IconArrowUpRight = ({ className }: { className?: string }) => <svg xmlns="
 const IconArrowDownLeft = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 7 7 17"/><path d="M17 17H7V7"/></svg>;
 const IconUsers = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>;
 const IconSignal = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 20h.01"/><path d="M7 20v-4"/><path d="M12 20v-8"/><path d="M17 20v-12"/><path d="M22 20v-16"/></svg>;
-
-// --- Helper for persistence ---
-const STORAGE_PREFIX = 'geohop_v1_';
+const IconShield = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>;
+const IconTrash = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>;
 
 // --- Main App Component ---
 function App() {
   const [view, setView] = useState<AppView>(AppView.LANDING);
   const [user, setUser] = useState<User | null>(null);
-  const [balance, setBalance] = useState<number>(0);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [peers, setPeers] = useState<User[]>([]);
+  
+  // Fetch Data Routine
+  const refreshData = async () => {
+    if (!user) return;
+    try {
+      // Refresh User data
+      const updatedUser = await api.getUser(user.username);
+      if (updatedUser) setUser(updatedUser);
 
-  // Load Peers (other local users) whenever user changes or view becomes Dashboard
-  useEffect(() => {
-    if (view === AppView.DASHBOARD && user) {
-      const foundPeers: User[] = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && key.startsWith(STORAGE_PREFIX)) {
-          try {
-            const data = JSON.parse(localStorage.getItem(key) || '{}');
-            if (data.user && data.user.id !== user.id) {
-              foundPeers.push(data.user);
-            }
-          } catch (e) {
-            console.error("Failed to parse peer user", e);
-          }
-        }
+      // Refresh transactions
+      const txs = await api.getTransactions(user.username);
+      setTransactions(txs);
+
+      // Refresh Peers for Dashboard
+      if (view === AppView.DASHBOARD) {
+        const allUsers = await api.getAllUsers();
+        setPeers(allUsers.filter(u => u.id !== user.id && u.role !== 'admin'));
       }
-      setPeers(foundPeers);
+    } catch (e) {
+      console.error("Sync Failed", e);
     }
-  }, [view, user]);
-
-  // Login with persistence
-  const handleLogin = (username: string) => {
-    const key = `${STORAGE_PREFIX}${username.toLowerCase()}`;
-    const storedData = localStorage.getItem(key);
-    
-    let activeUser: User;
-    let activeTransactions: Transaction[];
-
-    if (storedData) {
-      // Load existing user
-      const parsed = JSON.parse(storedData);
-      activeUser = parsed.user;
-      activeTransactions = parsed.transactions;
-
-      // Migration: Ensure new fields exist for old users
-      if (!activeUser.joinedAt) activeUser.joinedAt = new Date().toISOString();
-      if (activeUser.highestBalance === undefined) activeUser.highestBalance = activeUser.balance;
-
-    } else {
-      // Initialize new user with 0 HOP
-      activeUser = {
-        id: `user-${Date.now()}`,
-        username: username,
-        callsign: username.toUpperCase(),
-        balance: 0.0000,
-        nodeId: `!${Math.random().toString(16).substr(2, 6)}`,
-        joinedAt: new Date().toISOString(),
-        highestBalance: 0.0000
-      };
-      activeTransactions = [];
-      // Save immediately
-      localStorage.setItem(key, JSON.stringify({ user: activeUser, transactions: activeTransactions }));
-    }
-
-    setUser(activeUser);
-    setBalance(activeUser.balance);
-    setTransactions(activeTransactions);
-    setView(AppView.DASHBOARD);
   };
 
-  const saveData = (updatedUser: User, updatedTransactions: Transaction[]) => {
-    const key = `${STORAGE_PREFIX}${updatedUser.username.toLowerCase()}`;
-    localStorage.setItem(key, JSON.stringify({ user: updatedUser, transactions: updatedTransactions }));
-  };
+  // Sync Interval
+  useEffect(() => {
+    if (user && view !== AppView.LANDING) {
+      refreshData();
+      const interval = setInterval(refreshData, 5000); // Polling for "Cloud Sync"
+      return () => clearInterval(interval);
+    }
+  }, [user, view]);
+
 
   const handleLogout = () => {
     setUser(null);
-    setBalance(0);
     setTransactions([]);
     setPeers([]);
     setView(AppView.LANDING);
   };
 
-  const handleSendFunds = (amount: number, recipient: string) => {
-    if (!user || amount > balance) return;
-    
-    const newTx: Transaction = {
-      id: `tx-${Date.now()}`,
-      type: 'send',
-      amount,
-      peerId: recipient,
-      timestamp: new Date().toISOString(),
-      status: 'pending'
-    };
-    
-    const newTransactions = [newTx, ...transactions];
-    const newBalance = balance - amount;
-    const updatedUser = { ...user, balance: newBalance };
-
-    // Update State
-    setTransactions(newTransactions);
-    setBalance(newBalance);
-    setUser(updatedUser);
-    
-    // Save to LocalStorage
-    saveData(updatedUser, newTransactions);
-
-    // Simulate completion asynchronously
-    setTimeout(() => {
-      setTransactions(prev => {
-        const updatedTxs = prev.map(t => t.id === newTx.id ? {...t, status: 'completed'} : t);
-        const key = `${STORAGE_PREFIX}${updatedUser.username.toLowerCase()}`;
-        const stored = localStorage.getItem(key);
-        if(stored) {
-           const parsed = JSON.parse(stored);
-           parsed.transactions = updatedTxs;
-           localStorage.setItem(key, JSON.stringify(parsed));
-        }
-        return updatedTxs as Transaction[];
-      });
-    }, 3000);
+  const handleSendFunds = async (amount: number, recipientId: string) => {
+    if (!user) return;
+    try {
+      await api.sendFunds(user.username, recipientId, amount);
+      await refreshData();
+      return true;
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Transaction failed");
+      return false;
+    }
   };
 
-  const handleMiningReward = (amount: number) => {
+  const handleMiningReward = async (amount: number) => {
     if (!user) return;
-
-    const newTx: Transaction = {
-      id: `mine-${Date.now()}`,
-      type: 'mine',
-      amount,
-      timestamp: new Date().toISOString(),
-      status: 'completed'
-    };
-    
-    const newTransactions = [newTx, ...transactions];
-    const newBalance = balance + amount;
-    
-    // Update highest balance if needed
-    const newHighest = newBalance > user.highestBalance ? newBalance : user.highestBalance;
-
-    const updatedUser = { 
-      ...user, 
-      balance: newBalance,
-      highestBalance: newHighest
-    };
-
-    setTransactions(newTransactions);
-    setBalance(newBalance);
-    setUser(updatedUser);
-    
-    // Save to LocalStorage
-    saveData(updatedUser, newTransactions);
+    try {
+      await api.mineReward(user.username, amount);
+      // We don't force full refresh here to avoid UI flickering during rapid mining,
+      // but we update local state for visuals
+      setUser(prev => prev ? ({...prev, balance: prev.balance + amount}) : null);
+    } catch (e) {
+      console.error("Mining error", e);
+    }
   };
 
   return (
-    <div className="min-h-screen font-sans text-slate-100 selection:bg-emerald-500/30">
+    <div className={`min-h-screen font-sans selection:bg-emerald-500/30 ${user?.role === 'admin' ? 'text-amber-50 bg-slate-950' : 'text-slate-100'}`}>
       {/* Navbar */}
-      <nav className="fixed w-full top-0 z-40 bg-slate-900/80 backdrop-blur-md border-b border-slate-800">
+      <nav className={`fixed w-full top-0 z-40 backdrop-blur-md border-b ${user?.role === 'admin' ? 'bg-amber-950/80 border-amber-800' : 'bg-slate-900/80 border-slate-800'}`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-3 cursor-pointer" onClick={() => !user && setView(AppView.LANDING)}>
-              <div className="p-2 bg-emerald-500/10 rounded-lg border border-emerald-500/20">
-                <IconRadio />
+              <div className={`p-2 rounded-lg border ${user?.role === 'admin' ? 'bg-amber-500/10 border-amber-500/20 text-amber-500' : 'bg-emerald-500/10 border-emerald-500/20 text-white'}`}>
+                {user?.role === 'admin' ? <IconShield /> : <IconRadio />}
               </div>
-              <span className="text-xl font-bold tracking-tighter text-white">
-                Geo<span className="text-emerald-400">Hop</span>
+              <span className="text-xl font-bold tracking-tighter">
+                Geo<span className={user?.role === 'admin' ? 'text-amber-500' : 'text-emerald-400'}>Hop</span>
+                {user?.role === 'admin' && <span className="text-xs ml-2 bg-amber-600 text-white px-2 py-0.5 rounded uppercase tracking-widest">Admin</span>}
               </span>
             </div>
             <div>
               {user ? (
                 <div className="flex items-center gap-4">
                   <span className="hidden md:block text-xs font-mono text-slate-400">
-                    NODE: {user.nodeId}
+                    ID: {user.nodeId}
                   </span>
                   <button 
                     onClick={handleLogout}
@@ -199,13 +117,21 @@ function App() {
                   </button>
                 </div>
               ) : (
-                view !== AppView.LOGIN && (
-                  <button 
-                    onClick={() => setView(AppView.LOGIN)}
-                    className="px-4 py-2 text-sm font-semibold text-emerald-400 border border-emerald-500/30 rounded-lg hover:bg-emerald-500/10 transition-all"
-                  >
-                    Sign In
-                  </button>
+                view === AppView.LANDING && (
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => setView(AppView.LOGIN)}
+                      className="px-4 py-2 text-sm font-semibold text-emerald-400 border border-emerald-500/30 rounded-lg hover:bg-emerald-500/10 transition-all"
+                    >
+                      Sign In
+                    </button>
+                    <button 
+                      onClick={() => setView(AppView.REGISTER)}
+                      className="px-4 py-2 text-sm font-semibold text-slate-900 bg-emerald-500 rounded-lg hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/20"
+                    >
+                      Sign Up
+                    </button>
+                  </div>
                 )
               )}
             </div>
@@ -218,17 +144,30 @@ function App() {
         
         {view === AppView.LANDING && <LandingPage onStart={() => setView(AppView.LOGIN)} />}
         
-        {view === AppView.LOGIN && <LoginPage onLogin={handleLogin} onBack={() => setView(AppView.LANDING)} />}
+        {(view === AppView.LOGIN || view === AppView.REGISTER) && (
+          <AuthPage 
+            isRegister={view === AppView.REGISTER} 
+            onSuccess={(u) => {
+              setUser(u);
+              setView(u.role === 'admin' ? AppView.ADMIN : AppView.DASHBOARD);
+            }} 
+            onSwitch={() => setView(view === AppView.LOGIN ? AppView.REGISTER : AppView.LOGIN)}
+            onBack={() => setView(AppView.LANDING)}
+          />
+        )}
         
         {view === AppView.DASHBOARD && user && (
           <Dashboard 
             user={user} 
-            balance={balance} 
             transactions={transactions}
             peers={peers}
             onSend={handleSendFunds}
             onMine={handleMiningReward}
           />
+        )}
+
+        {view === AppView.ADMIN && user?.role === 'admin' && (
+           <AdminDashboard />
         )}
 
       </main>
@@ -297,20 +236,36 @@ const LandingPage = ({ onStart }: { onStart: () => void }) => {
   );
 };
 
-const LoginPage = ({ onLogin, onBack }: { onLogin: (u: string) => void, onBack: () => void }) => {
+const AuthPage = ({ isRegister, onSuccess, onSwitch, onBack }: { 
+  isRegister: boolean, 
+  onSuccess: (u: User) => void, 
+  onSwitch: () => void,
+  onBack: () => void
+}) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!username || !password) return;
     setLoading(true);
+    setError('');
     
-    // Simulate decryption/auth delay
-    setTimeout(() => {
-      onLogin(username);
-    }, 1500);
+    try {
+      let user;
+      if (isRegister) {
+        user = await api.register({ username, password });
+      } else {
+        user = await api.login({ username, password });
+      }
+      onSuccess(user);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Authentication failed');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -319,7 +274,9 @@ const LoginPage = ({ onLogin, onBack }: { onLogin: (u: string) => void, onBack: 
         {loading && (
           <div className="absolute inset-0 bg-slate-950/90 flex flex-col items-center justify-center z-10">
             <div className="w-16 h-16 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin mb-4"></div>
-            <p className="text-emerald-400 font-mono animate-pulse">DECRYPTING KEYS...</p>
+            <p className="text-emerald-400 font-mono animate-pulse">
+              {isRegister ? 'GENERATING KEYS...' : 'DECRYPTING...'}
+            </p>
           </div>
         )}
         
@@ -328,12 +285,20 @@ const LoginPage = ({ onLogin, onBack }: { onLogin: (u: string) => void, onBack: 
             <IconRadio />
           </div>
         </div>
-        <h2 className="text-2xl font-bold text-center mb-2">Secure Sign In</h2>
-        <p className="text-center text-slate-400 mb-8 text-sm">Enter credentials to unlock your mesh node.</p>
+        <h2 className="text-2xl font-bold text-center mb-2">{isRegister ? 'Initialize Node' : 'Secure Sign In'}</h2>
+        <p className="text-center text-slate-400 mb-8 text-sm">
+          {isRegister ? 'Create a new identity on the mesh.' : 'Enter credentials to unlock your wallet.'}
+        </p>
+        
+        {error && (
+          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded text-red-400 text-xs text-center font-mono">
+            ERROR: {error.toUpperCase()}
+          </div>
+        )}
         
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-mono text-slate-500 mb-1">CALLSIGN</label>
+            <label className="block text-xs font-mono text-slate-500 mb-1">CALLSIGN / USERNAME</label>
             <input
               type="text"
               value={username}
@@ -358,9 +323,17 @@ const LoginPage = ({ onLogin, onBack }: { onLogin: (u: string) => void, onBack: 
             disabled={loading}
             className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/20"
           >
-            Authenticate
+            {isRegister ? 'Generate Identity' : 'Authenticate'}
           </button>
         </form>
+        
+        <div className="mt-6 text-center text-sm">
+          <span className="text-slate-500">{isRegister ? 'Already have a node?' : 'New to the network?'} </span>
+          <button onClick={onSwitch} className="text-emerald-400 hover:text-emerald-300 font-bold ml-1">
+             {isRegister ? 'Sign In' : 'Initialize'}
+          </button>
+        </div>
+        
         <button onClick={onBack} className="w-full mt-4 text-sm text-slate-500 hover:text-slate-300">
           Cancel
         </button>
@@ -369,12 +342,11 @@ const LoginPage = ({ onLogin, onBack }: { onLogin: (u: string) => void, onBack: 
   );
 };
 
-const Dashboard = ({ user, balance, transactions, peers, onSend, onMine }: { 
+const Dashboard = ({ user, transactions, peers, onSend, onMine }: { 
   user: User; 
-  balance: number; 
   transactions: Transaction[]; 
   peers: User[];
-  onSend: (amt: number, to: string) => void; 
+  onSend: (amt: number, to: string) => Promise<boolean | undefined>; 
   onMine: (amt: number) => void;
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'send' | 'receive' | 'mine'>('overview');
@@ -422,14 +394,16 @@ const Dashboard = ({ user, balance, transactions, peers, onSend, onMine }: {
     return () => clearInterval(interval);
   }, [isMining, onMine]);
 
-  const handleTransfer = (e: React.FormEvent) => {
+  const handleTransfer = async (e: React.FormEvent) => {
     e.preventDefault();
     const val = parseFloat(amount);
     if (val && recipient) {
-      onSend(val, recipient);
-      setAmount('');
-      setRecipient('');
-      setActiveTab('overview');
+      const success = await onSend(val, recipient);
+      if (success) {
+        setAmount('');
+        setRecipient('');
+        setActiveTab('overview');
+      }
     }
   };
 
@@ -448,7 +422,7 @@ const Dashboard = ({ user, balance, transactions, peers, onSend, onMine }: {
           </div>
           <p className="text-slate-400 text-sm font-mono mb-1">CURRENT BALANCE</p>
           <h2 className="text-4xl font-bold text-white tracking-tight">
-            {balance.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })} <span className="text-emerald-500">HOP</span>
+            {user.balance.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })} <span className="text-emerald-500">HOP</span>
           </h2>
           <div className="mt-4 flex items-center gap-2 text-xs text-emerald-400 font-mono">
             <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
@@ -573,8 +547,7 @@ const Dashboard = ({ user, balance, transactions, peers, onSend, onMine }: {
                     <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-3 text-slate-600">
                       <IconSignal />
                     </div>
-                    <p className="text-slate-500 text-sm">No other nodes detected in local storage.</p>
-                    <p className="text-slate-600 text-xs mt-1">Create another account in a new tab to see it here.</p>
+                    <p className="text-slate-500 text-sm">No other nodes detected on the network.</p>
                   </div>
                 ) : (
                   peers.map((peer) => (
@@ -693,7 +666,7 @@ const Dashboard = ({ user, balance, transactions, peers, onSend, onMine }: {
                   required
                 />
                 <div className="text-right text-xs text-slate-500 mt-2">
-                  Available: {balance.toFixed(4)} HOP
+                  Available: {user.balance.toFixed(4)} HOP
                 </div>
               </div>
               <button 
@@ -733,6 +706,101 @@ const Dashboard = ({ user, balance, transactions, peers, onSend, onMine }: {
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+};
+
+const AdminDashboard = () => {
+  const [users, setUsers] = useState<User[]>([]);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editBalance, setEditBalance] = useState('');
+
+  const load = async () => {
+    const all = await api.getAllUsers();
+    setUsers(all);
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const handleUpdate = async (username: string) => {
+    const val = parseFloat(editBalance);
+    if (!isNaN(val)) {
+        await api.adminUpdateBalance(username, val);
+        setEditId(null);
+        load();
+    }
+  };
+
+  const handleDelete = async (username: string) => {
+      if(window.confirm(`Are you sure you want to purge ${username}?`)) {
+          try {
+              await api.adminDeleteUser(username);
+              load();
+          } catch(e) {
+              alert(e instanceof Error ? e.message : 'Error');
+          }
+      }
+  }
+
+  return (
+    <div className="bg-amber-950/20 p-6 rounded-2xl border border-amber-900/50">
+      <h2 className="text-3xl font-bold text-amber-500 mb-6 flex items-center gap-3">
+        <IconShield /> NETWORK OVERSEER
+      </h2>
+
+      <div className="overflow-x-auto rounded-xl border border-amber-900/30">
+        <table className="w-full text-left text-sm text-amber-100">
+            <thead className="bg-amber-950/50 uppercase font-mono text-amber-600/80">
+                <tr>
+                    <th className="p-4">Username</th>
+                    <th className="p-4">Node ID</th>
+                    <th className="p-4">Role</th>
+                    <th className="p-4 text-right">Balance</th>
+                    <th className="p-4 text-center">Actions</th>
+                </tr>
+            </thead>
+            <tbody className="divide-y divide-amber-900/30 bg-slate-900/40">
+                {users.map(u => (
+                    <tr key={u.id} className="hover:bg-amber-900/20">
+                        <td className="p-4 font-bold">{u.username}</td>
+                        <td className="p-4 font-mono text-xs opacity-70">{u.nodeId}</td>
+                        <td className="p-4">
+                            <span className={`px-2 py-0.5 rounded text-xs uppercase ${u.role === 'admin' ? 'bg-amber-600 text-white' : 'bg-slate-700 text-slate-300'}`}>
+                                {u.role}
+                            </span>
+                        </td>
+                        <td className="p-4 text-right font-mono">
+                            {editId === u.id ? (
+                                <div className="flex justify-end gap-2">
+                                    <input 
+                                        type="number" 
+                                        value={editBalance} 
+                                        onChange={e => setEditBalance(e.target.value)}
+                                        className="w-24 bg-slate-950 border border-amber-700 px-2 py-1 rounded"
+                                    />
+                                    <button onClick={() => handleUpdate(u.username)} className="text-green-400">Save</button>
+                                    <button onClick={() => setEditId(null)} className="text-slate-500">X</button>
+                                </div>
+                            ) : (
+                                <span onClick={() => { setEditId(u.id); setEditBalance(u.balance.toString()); }} className="cursor-pointer border-b border-dotted border-amber-500/30 hover:text-amber-400">
+                                    {u.balance.toFixed(4)}
+                                </span>
+                            )}
+                        </td>
+                        <td className="p-4 flex justify-center gap-4">
+                            {u.role !== 'admin' && (
+                                <button onClick={() => handleDelete(u.username)} className="text-red-500 hover:text-red-400 p-1">
+                                    <IconTrash />
+                                </button>
+                            )}
+                        </td>
+                    </tr>
+                ))}
+            </tbody>
+        </table>
       </div>
     </div>
   );
