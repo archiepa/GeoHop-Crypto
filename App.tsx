@@ -1,6 +1,6 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { AppView, User, Transaction } from './types';
-import { GeoMap } from './components/GeoMap';
 import { ChatBot } from './components/ChatBot';
 
 // --- Icons ---
@@ -10,8 +10,10 @@ const IconActivity = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" he
 const IconLogOut = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>;
 const IconPickaxe = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>;
 const IconQrCode = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/><path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v-1"/></svg>;
-const IconArrowUpRight = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></svg>;
+const IconArrowUpRight = ({ className }: { className?: string }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M7 7h10v10"/><path d="M7 17 17 7"/></svg>;
 const IconArrowDownLeft = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 7 7 17"/><path d="M17 17H7V7"/></svg>;
+const IconUsers = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>;
+const IconSignal = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 20h.01"/><path d="M7 20v-4"/><path d="M12 20v-8"/><path d="M17 20v-12"/><path d="M22 20v-16"/></svg>;
 
 // --- Helper for persistence ---
 const STORAGE_PREFIX = 'geohop_v1_';
@@ -22,6 +24,28 @@ function App() {
   const [user, setUser] = useState<User | null>(null);
   const [balance, setBalance] = useState<number>(0);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [peers, setPeers] = useState<User[]>([]);
+
+  // Load Peers (other local users) whenever user changes or view becomes Dashboard
+  useEffect(() => {
+    if (view === AppView.DASHBOARD && user) {
+      const foundPeers: User[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(STORAGE_PREFIX)) {
+          try {
+            const data = JSON.parse(localStorage.getItem(key) || '{}');
+            if (data.user && data.user.id !== user.id) {
+              foundPeers.push(data.user);
+            }
+          } catch (e) {
+            console.error("Failed to parse peer user", e);
+          }
+        }
+      }
+      setPeers(foundPeers);
+    }
+  }, [view, user]);
 
   // Login with persistence
   const handleLogin = (username: string) => {
@@ -36,6 +60,11 @@ function App() {
       const parsed = JSON.parse(storedData);
       activeUser = parsed.user;
       activeTransactions = parsed.transactions;
+
+      // Migration: Ensure new fields exist for old users
+      if (!activeUser.joinedAt) activeUser.joinedAt = new Date().toISOString();
+      if (activeUser.highestBalance === undefined) activeUser.highestBalance = activeUser.balance;
+
     } else {
       // Initialize new user with 0 HOP
       activeUser = {
@@ -43,7 +72,9 @@ function App() {
         username: username,
         callsign: username.toUpperCase(),
         balance: 0.0000,
-        nodeId: `!${Math.random().toString(16).substr(2, 6)}`
+        nodeId: `!${Math.random().toString(16).substr(2, 6)}`,
+        joinedAt: new Date().toISOString(),
+        highestBalance: 0.0000
       };
       activeTransactions = [];
       // Save immediately
@@ -65,6 +96,7 @@ function App() {
     setUser(null);
     setBalance(0);
     setTransactions([]);
+    setPeers([]);
     setView(AppView.LANDING);
   };
 
@@ -121,7 +153,15 @@ function App() {
     
     const newTransactions = [newTx, ...transactions];
     const newBalance = balance + amount;
-    const updatedUser = { ...user, balance: newBalance };
+    
+    // Update highest balance if needed
+    const newHighest = newBalance > user.highestBalance ? newBalance : user.highestBalance;
+
+    const updatedUser = { 
+      ...user, 
+      balance: newBalance,
+      highestBalance: newHighest
+    };
 
     setTransactions(newTransactions);
     setBalance(newBalance);
@@ -184,7 +224,8 @@ function App() {
           <Dashboard 
             user={user} 
             balance={balance} 
-            transactions={transactions} 
+            transactions={transactions}
+            peers={peers}
             onSend={handleSendFunds}
             onMine={handleMiningReward}
           />
@@ -224,13 +265,20 @@ const LandingPage = ({ onStart }: { onStart: () => void }) => {
             Access Wallet
           </button>
           <button className="px-8 py-4 bg-slate-800 hover:bg-slate-700 text-white font-semibold rounded-lg border border-slate-700 transition-all">
-            View Coverage Map
+            View Protocol Specs
           </button>
         </div>
       </div>
       
-      <div className="w-full max-w-4xl opacity-80 h-80">
-         <GeoMap />
+      <div className="w-full max-w-4xl py-8 flex justify-center">
+         <div className="relative group">
+            <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-full blur opacity-20 animate-pulse group-hover:opacity-40 transition-opacity"></div>
+            <div className="relative bg-slate-900 rounded-full p-12 border border-slate-800 shadow-2xl">
+               <div className="text-emerald-500 w-32 h-32">
+                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="w-full h-full"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.2 19.1 19.1"/></svg>
+               </div>
+            </div>
+         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8 w-full max-w-5xl text-left">
@@ -321,10 +369,11 @@ const LoginPage = ({ onLogin, onBack }: { onLogin: (u: string) => void, onBack: 
   );
 };
 
-const Dashboard = ({ user, balance, transactions, onSend, onMine }: { 
+const Dashboard = ({ user, balance, transactions, peers, onSend, onMine }: { 
   user: User; 
   balance: number; 
   transactions: Transaction[]; 
+  peers: User[];
   onSend: (amt: number, to: string) => void; 
   onMine: (amt: number) => void;
 }) => {
@@ -384,6 +433,11 @@ const Dashboard = ({ user, balance, transactions, onSend, onMine }: {
     }
   };
 
+  const handleSendToPeer = (nodeId: string) => {
+    setRecipient(nodeId);
+    setActiveTab('send');
+  };
+
   return (
     <div className="space-y-8">
       {/* Header Info */}
@@ -409,20 +463,20 @@ const Dashboard = ({ user, balance, transactions, onSend, onMine }: {
           </div>
           <div className="grid grid-cols-2 gap-4 text-sm">
              <div>
-                <p className="text-slate-500 text-xs font-mono">SIGNAL SNR</p>
-                <p className="text-white font-mono">9.5 dB</p>
+                <p className="text-slate-500 text-xs font-mono">FIRST SEEN</p>
+                <p className="text-white font-mono">{new Date(user.joinedAt).toLocaleDateString()}</p>
              </div>
              <div>
-                <p className="text-slate-500 text-xs font-mono">BATTERY</p>
-                <p className="text-white font-mono">94%</p>
+                <p className="text-slate-500 text-xs font-mono">PEAK BALANCE</p>
+                <p className="text-white font-mono">{user.highestBalance?.toFixed(4) || '0.0000'}</p>
              </div>
              <div>
-                <p className="text-slate-500 text-xs font-mono">PEERS</p>
-                <p className="text-white font-mono">14 Active</p>
+                <p className="text-slate-500 text-xs font-mono">TOTAL TXs</p>
+                <p className="text-white font-mono">{transactions.length}</p>
              </div>
              <div>
-                <p className="text-slate-500 text-xs font-mono">UPTIME</p>
-                <p className="text-white font-mono">4d 12h</p>
+                <p className="text-slate-500 text-xs font-mono">NODE TRUST</p>
+                <p className="text-white font-mono">{(0.9 + (transactions.length * 0.01)).toFixed(2)}%</p>
              </div>
           </div>
         </div>
@@ -434,7 +488,7 @@ const Dashboard = ({ user, balance, transactions, onSend, onMine }: {
           onClick={() => setActiveTab('overview')}
           className={`pb-4 text-sm font-semibold transition-colors whitespace-nowrap ${activeTab === 'overview' ? 'text-emerald-400 border-b-2 border-emerald-400' : 'text-slate-400 hover:text-white'}`}
         >
-          Transactions
+          Transactions & Nodes
         </button>
         <button 
           onClick={() => setActiveTab('mine')}
@@ -459,7 +513,7 @@ const Dashboard = ({ user, balance, transactions, onSend, onMine }: {
       {/* Tab Content */}
       <div className="min-h-[300px]">
         {activeTab === 'overview' && (
-          <div className="space-y-6">
+          <div className="space-y-8">
             <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
              <table className="w-full text-left border-collapse">
                <thead>
@@ -507,10 +561,61 @@ const Dashboard = ({ user, balance, transactions, onSend, onMine }: {
              </table>
             </div>
             
-            {/* Live Map in Dashboard */}
-            <div className="h-[400px] w-full">
-              <h3 className="text-sm font-bold text-slate-400 mb-2 font-mono">REAL-TIME COVERAGE</h3>
-              <GeoMap currentUser={user} className="h-full" />
+            {/* Peer Directory List */}
+            <div className="w-full">
+              <h3 className="text-sm font-bold text-slate-400 mb-4 font-mono flex items-center gap-2">
+                <IconUsers /> NETWORK DIRECTORY <span className="bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full text-xs">{peers.length} NODES</span>
+              </h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {peers.length === 0 ? (
+                  <div className="col-span-full py-12 px-6 text-center bg-slate-900 border border-slate-800 border-dashed rounded-xl">
+                    <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-3 text-slate-600">
+                      <IconSignal />
+                    </div>
+                    <p className="text-slate-500 text-sm">No other nodes detected in local storage.</p>
+                    <p className="text-slate-600 text-xs mt-1">Create another account in a new tab to see it here.</p>
+                  </div>
+                ) : (
+                  peers.map((peer) => (
+                    <div key={peer.id} className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex flex-col justify-between hover:border-emerald-500/30 transition-all hover:bg-slate-800/50 group">
+                        <div className="flex justify-between items-start mb-3">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-500 font-bold border border-emerald-500/20">
+                              {peer.callsign.substring(0,2)}
+                            </div>
+                            <div>
+                                <h4 className="font-bold text-slate-200 text-sm">{peer.callsign}</h4>
+                                <div className="text-[10px] font-mono text-emerald-500/80">{peer.nodeId}</div>
+                            </div>
+                          </div>
+                          <div className="flex h-2 w-2 relative">
+                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                          </div>
+                        </div>
+                        
+                        <div className="space-y-2 mb-4">
+                           <div className="flex justify-between text-xs text-slate-500">
+                              <span>Signal</span>
+                              <span className="text-emerald-400 font-mono">-{(Math.random() * 20 + 90).toFixed(0)} dBm</span>
+                           </div>
+                           <div className="flex justify-between text-xs text-slate-500">
+                              <span>Seen</span>
+                              <span className="text-slate-400">{new Date(peer.joinedAt).toLocaleDateString()}</span>
+                           </div>
+                        </div>
+
+                        <button 
+                          onClick={() => handleSendToPeer(peer.nodeId)}
+                          className="w-full py-2 bg-slate-800 hover:bg-emerald-600/20 hover:text-emerald-400 text-slate-400 text-xs font-bold rounded border border-slate-700 hover:border-emerald-500/50 transition-all flex items-center justify-center gap-2"
+                        >
+                          <IconArrowUpRight className="w-3 h-3" /> Send Funds
+                        </button>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
         )}

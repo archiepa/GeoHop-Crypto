@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useState } from 'react';
 import { User } from '../types';
 
@@ -13,36 +14,47 @@ interface MeshNode {
 
 interface GeoMapProps {
   currentUser?: User | null;
+  peers?: User[];
   className?: string;
 }
 
-const MOCK_NAMES = [
-  "Alpha_Station", "Bravo_Relay", "Charlie_Link", "Delta_Node", 
-  "Echo_Base", "Foxtrot_Repeater", "Golf_Gateway", "Hotel_Hub", 
-  "India_Outpost", "Juliet_Tower", "Kilo_Bridge", "Lima_Link"
-];
-
-export const GeoMap: React.FC<GeoMapProps> = ({ currentUser, className = "" }) => {
+export const GeoMap: React.FC<GeoMapProps> = ({ currentUser, peers = [], className = "" }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [nodes, setNodes] = useState<MeshNode[]>([]);
   const [hoveredNode, setHoveredNode] = useState<MeshNode | null>(null);
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
 
+  // Deterministic position generator based on Node ID string
+  const getPosition = (id: string) => {
+    let hash = 0;
+    for (let i = 0; i < id.length; i++) {
+        hash = id.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    // Normalize to 10-90 range to keep off edges
+    const x = 10 + (Math.abs(hash) % 80);
+    const y = 15 + (Math.abs(hash >> 8) % 70);
+    return { x, y };
+  };
+
   // Initialize nodes
   useEffect(() => {
-    // Generate realistic looking mesh nodes
-    const generated: MeshNode[] = MOCK_NAMES.map((name, i) => ({
-      id: `node-${i}`,
-      username: name,
-      nodeId: `!${Math.random().toString(16).substr(2, 6)}`,
-      x: 10 + Math.random() * 80, // Keep away from extreme edges
-      y: 15 + Math.random() * 70,
-      active: Math.random() > 0.15, // 85% uptime simulation
-    }));
+    // Convert peers to map nodes
+    const peerNodes: MeshNode[] = peers.map(peer => {
+      const pos = getPosition(peer.nodeId);
+      return {
+        id: peer.id,
+        username: peer.username,
+        nodeId: peer.nodeId,
+        x: pos.x,
+        y: pos.y,
+        active: true, // Assuming stored users are "known" to the mesh
+      };
+    });
 
     if (currentUser) {
-      // Add the current user to the map, typically central
-      generated.push({
+      // Add the current user to the map, always centralish or deterministic if we prefer
+      // For now, let's make the current user central-ish to feel like "home"
+      peerNodes.push({
         id: currentUser.id,
         username: currentUser.username,
         nodeId: currentUser.nodeId,
@@ -53,8 +65,8 @@ export const GeoMap: React.FC<GeoMapProps> = ({ currentUser, className = "" }) =
       });
     }
 
-    setNodes(generated);
-  }, [currentUser?.id]); // Re-generate if user changes (login/logout)
+    setNodes(peerNodes);
+  }, [currentUser?.id, peers]);
 
   // Animation Loop
   useEffect(() => {
@@ -69,15 +81,14 @@ export const GeoMap: React.FC<GeoMapProps> = ({ currentUser, className = "" }) =
     const render = () => {
       time++;
       
-      // Use client dimensions to avoid stretching if CSS resizes it
       const rect = canvas.getBoundingClientRect();
-      // Ensure internal resolution matches display or fixed high res
-      // For simplicity here we rely on the width/height attrs set in JSX
       const w = canvas.width;
       const h = canvas.height;
       
       // Clear background
       ctx.clearRect(0, 0, w, h);
+
+      if (nodes.length === 0) return;
 
       // --- Draw Connections ---
       ctx.lineWidth = 1;
@@ -93,13 +104,12 @@ export const GeoMap: React.FC<GeoMapProps> = ({ currentUser, className = "" }) =
           const oy = (other.y / 100) * h;
           
           const dist = Math.hypot(nx - ox, ny - oy);
-          const maxDist = w * 0.25; // Connection range relative to width
+          // Increase connection range significantly if there are few nodes so they find each other
+          const maxDist = w * 0.45; 
           
           if (dist < maxDist) {
-             // Calculate opacity based on distance (closer = stronger)
              const opacity = (1 - dist / maxDist) * 0.4;
              
-             // Highlight connections to the current user
              const isRelated = node.isCurrentUser || other.isCurrentUser;
              ctx.strokeStyle = isRelated
                 ? `rgba(16, 185, 129, ${opacity + 0.2})` // Emerald for user
@@ -112,12 +122,10 @@ export const GeoMap: React.FC<GeoMapProps> = ({ currentUser, className = "" }) =
 
              // Simulate data packets traveling
              if (node.active && other.active) {
-                // Determine direction based on time to animate a dot
-                const speed = 0.005; // speed factor
+                const speed = 0.005;
                 const offset = (time * speed + (i * j)) % 1;
                 
-                // Only draw packet if we are "lucky" to reduce clutter
-                if ((i + j) % 3 === 0) {
+                if ((i + j) % 2 === 0) { // More frequent packets since fewer nodes
                     const px = nx + (ox - nx) * offset;
                     const py = ny + (oy - ny) * offset;
                     
@@ -139,7 +147,6 @@ export const GeoMap: React.FC<GeoMapProps> = ({ currentUser, className = "" }) =
         // Pulse Effect for active nodes
         if (node.active) {
           const pulseColor = node.isCurrentUser ? 'rgba(16, 185, 129, 0.2)' : 'rgba(59, 130, 246, 0.15)';
-          // Pulse size oscillates with time
           const pulseSize = 6 + Math.sin(time * 0.05 + node.x) * 3;
           
           ctx.beginPath();
@@ -191,14 +198,12 @@ export const GeoMap: React.FC<GeoMapProps> = ({ currentUser, className = "" }) =
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     
-    // Scale coordinates if canvas display size differs from internal resolution
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
     
     const mx = x * scaleX;
     const my = y * scaleY;
 
-    // Check collision
     let found = null;
     for (const node of nodes) {
       const nx = (node.x / 100) * canvas.width;
@@ -213,7 +218,6 @@ export const GeoMap: React.FC<GeoMapProps> = ({ currentUser, className = "" }) =
     
     setHoveredNode(found);
     if (found) {
-        // Position tooltip near the mouse, but clamped
         setTooltipPos({ x: x + 15, y: y - 10 });
     }
   };
@@ -228,13 +232,13 @@ export const GeoMap: React.FC<GeoMapProps> = ({ currentUser, className = "" }) =
        <div className="absolute top-3 left-4 z-10 flex flex-col pointer-events-none select-none">
           <div className="flex items-center gap-2">
             <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${nodes.length > 0 ? 'bg-emerald-400 opacity-75' : 'bg-slate-400 opacity-20'}`}></span>
+              <span className={`relative inline-flex rounded-full h-2 w-2 ${nodes.length > 0 ? 'bg-emerald-500' : 'bg-slate-600'}`}></span>
             </span>
             <span className="text-xs font-mono text-emerald-400 font-bold tracking-wider">LIVE_NET_TOPOLOGY</span>
           </div>
           <span className="text-[10px] text-slate-500 font-mono mt-1">
-             ACTIVE_PEERS: {nodes.filter(n => n.active).length} | SIGNAL_FLOOR: -112dBm
+             ACTIVE_PEERS: {nodes.length > 0 ? nodes.length - 1 : 0} | SIGNAL_FLOOR: -112dBm
           </span>
        </div>
        

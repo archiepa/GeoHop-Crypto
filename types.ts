@@ -1,3 +1,4 @@
+
 export interface Transaction {
   id: string;
   type: 'send' | 'receive' | 'mine';
@@ -13,6 +14,8 @@ export interface User {
   callsign: string; // Meshtastic vibe
   balance: number;
   nodeId: string;
+  joinedAt: string;
+  highestBalance: number;
 }
 
 export interface ChatMessage {
