@@ -1,6 +1,6 @@
 import { GoogleGenAI, Chat } from "@google/genai";
 
-const API_KEY = process.env.API_KEY || '';
+const API_KEY = process.env.API_KEY;
 
 let chatSession: Chat | null = null;
 
