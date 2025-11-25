@@ -1,0 +1,7 @@
+{
+  "name": "GeoHop | Mesh Network Crypto",
+  "description": "The official decentralized banking interface for GeoHop, the cryptocurrency powered by Meshtastic networks.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
